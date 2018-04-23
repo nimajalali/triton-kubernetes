@@ -6,18 +6,8 @@ provider "azurerm" {
   environment     = "${var.azure_environment}"
 }
 
-provider "rancher" {
-  api_url    = "${var.rancher_api_url}"
-  access_key = "${var.rancher_access_key}"
-  secret_key = "${var.rancher_secret_key}"
-}
-
-resource "rancher_registration_token" "token" {
-  name           = "${var.hostname}"
-  description    = "Registration token for ${var.hostname}"
-  environment_id = "${var.rancher_environment_id}"
-
-  host_labels = "${var.rancher_host_labels}"
+locals {
+  rancher_node_role = "${element(keys(var.rancher_host_labels), 0)}"
 }
 
 data "template_file" "install_rancher_agent" {
@@ -25,12 +15,19 @@ data "template_file" "install_rancher_agent" {
 
   vars {
     hostname                  = "${var.hostname}"
-    rancher_agent_command     = "${rancher_registration_token.token.command}"
     docker_engine_install_url = "${var.docker_engine_install_url}"
+
+    rancher_api_url                    = "${var.rancher_api_url}"
+    rancher_cluster_registration_token = "${var.rancher_cluster_registration_token}"
+    rancher_cluster_ca_checksum        = "${var.rancher_cluster_ca_checksum}"
+    rancher_node_role                  = "${local.rancher_node_role == "control" ? "controlplane" : local.rancher_node_role}"
+    rancher_agent_image                = "${var.rancher_agent_image}"
 
     rancher_registry          = "${var.rancher_registry}"
     rancher_registry_username = "${var.rancher_registry_username}"
     rancher_registry_password = "${var.rancher_registry_password}"
+
+    disk_mount_path = "${var.azure_disk_mount_path}"
   }
 }
 
@@ -56,6 +53,17 @@ resource "azurerm_network_interface" "nic" {
   }
 }
 
+resource "azurerm_managed_disk" "host_disk" {
+  count = "${var.azure_disk_mount_path == "" ? 0 : 1}"
+
+  name                 = "${var.hostname}-managed-disk"
+  location             = "${var.azure_location}"
+  resource_group_name  = "${var.azure_resource_group_name}"
+  storage_account_type = "Standard_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = "${var.azure_disk_size}"
+}
+
 resource "azurerm_virtual_machine" "host" {
   name                  = "${var.hostname}"
   location              = "${var.azure_location}"
@@ -63,8 +71,12 @@ resource "azurerm_virtual_machine" "host" {
   network_interface_ids = ["${azurerm_network_interface.nic.id}"]
   vm_size               = "${var.azure_size}"
 
-  delete_os_disk_on_termination    = true
-  delete_data_disks_on_termination = true
+  delete_os_disk_on_termination = true
+
+  # delete_data_disks_on_termination should be set to false
+  # if the user chooses to attach a managed disk.
+  # Otherwise, terraform will hang when trying to delete the managed disk.
+  delete_data_disks_on_termination = "${var.azure_disk_mount_path == ""}"
 
   storage_image_reference {
     publisher = "${var.azure_image_publisher}"
@@ -81,11 +93,12 @@ resource "azurerm_virtual_machine" "host" {
   }
 
   storage_data_disk {
-    name              = "${var.hostname}-datadisk"
+    name              = "${element(coalescelist(azurerm_managed_disk.host_disk.*.name, list("${var.hostname}-datadisk")), 0)}"
+    managed_disk_id   = "${element(coalescelist(azurerm_managed_disk.host_disk.*.id, list("")), 0)}"
     managed_disk_type = "Standard_LRS"
-    create_option     = "Empty"
+    create_option     = "${var.azure_disk_mount_path == "" ? "Empty" : "Attach"}"
     lun               = 0
-    disk_size_gb      = "1023"
+    disk_size_gb      = "${element(coalescelist(azurerm_managed_disk.host_disk.*.disk_size_gb, list("1023")), 0)}"
   }
 
   os_profile {

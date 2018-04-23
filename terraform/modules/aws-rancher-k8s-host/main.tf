@@ -4,18 +4,8 @@ provider "aws" {
   region     = "${var.aws_region}"
 }
 
-provider "rancher" {
-  api_url    = "${var.rancher_api_url}"
-  access_key = "${var.rancher_access_key}"
-  secret_key = "${var.rancher_secret_key}"
-}
-
-resource "rancher_registration_token" "token" {
-  name           = "${var.hostname}"
-  description    = "Registration token for ${var.hostname}"
-  environment_id = "${var.rancher_environment_id}"
-
-  host_labels = "${var.rancher_host_labels}"
+locals {
+  rancher_node_role = "${element(keys(var.rancher_host_labels), 0)}"
 }
 
 data "template_file" "install_rancher_agent" {
@@ -23,12 +13,20 @@ data "template_file" "install_rancher_agent" {
 
   vars {
     hostname                  = "${var.hostname}"
-    rancher_agent_command     = "${rancher_registration_token.token.command}"
     docker_engine_install_url = "${var.docker_engine_install_url}"
+
+    rancher_api_url                    = "${var.rancher_api_url}"
+    rancher_cluster_registration_token = "${var.rancher_cluster_registration_token}"
+    rancher_cluster_ca_checksum        = "${var.rancher_cluster_ca_checksum}"
+    rancher_node_role                  = "${local.rancher_node_role == "control" ? "controlplane" : local.rancher_node_role}"
+    rancher_agent_image                = "${var.rancher_agent_image}"
 
     rancher_registry          = "${var.rancher_registry}"
     rancher_registry_username = "${var.rancher_registry_username}"
     rancher_registry_password = "${var.rancher_registry_password}"
+
+    volume_device_name = "${var.ebs_volume_device_name}"
+    volume_mount_path  = "${var.ebs_volume_mount_path}"
   }
 }
 
@@ -44,4 +42,27 @@ resource "aws_instance" "host" {
   }
 
   user_data = "${data.template_file.install_rancher_agent.rendered}"
+}
+
+resource "aws_ebs_volume" "host_volume" {
+  count = "${var.ebs_volume_device_name != "" ? 1 : 0}"
+
+  availability_zone = "${aws_instance.host.availability_zone}"
+  type              = "${var.ebs_volume_type}"
+  size              = "${var.ebs_volume_size}"
+
+  tags = {
+    Name = "${var.hostname}-volume"
+  }
+}
+
+resource "aws_volume_attachment" "host_volume_attachment" {
+  count = "${var.ebs_volume_device_name != "" ? 1 : 0}"
+
+  # Forcing detach to prevent VolumeInUse error
+  force_detach = true
+
+  device_name = "${var.ebs_volume_device_name}"
+  volume_id   = "${aws_ebs_volume.host_volume.id}"
+  instance_id = "${aws_instance.host.id}"
 }
