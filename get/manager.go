@@ -80,13 +80,13 @@ func GetManager(remoteBackend backend.Backend) error {
 	}
 
 	// Run terraform init
-	err = shell.RunShellCommand(&shellOptions, "terraform", "init", "-force-copy")
+	err = shell.RunShellCommand(&shellOptions, shell.GetTerraformCmd(), "init", "-force-copy")
 	if err != nil {
 		return err
 	}
 
 	// Run terraform output
-	err = shell.RunShellCommand(&shellOptions, "terraform", "output", "-module", "cluster-manager")
+	err = shell.RunShellCommand(&shellOptions, shell.GetTerraformCmd(), "output", "-module", "cluster-manager")
 	if err != nil {
 		return err
 	}

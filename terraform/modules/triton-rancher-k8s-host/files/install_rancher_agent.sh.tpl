@@ -31,3 +31,12 @@ fi
 
 # Run Rancher agent container
 sudo docker run -d --privileged --restart=unless-stopped --net=host -v /etc/kubernetes:/etc/kubernetes -v /var/run:/var/run ${rancher_agent_image} --server ${rancher_api_url} --token ${rancher_cluster_registration_token} --ca-checksum ${rancher_cluster_ca_checksum} --${rancher_node_role}
+
+# Mount Volume
+if [ "${mount_path}" != "" ]; then
+	sudo apt-get update
+	sudo apt-get install -y nfs-common
+	sudo mkdir -p ${mount_path}
+	sudo echo '${nfs_path}	${mount_path}	nfs	auto,nofail,noatime,nolock,intr,tcp,actimeo=1800	0	0' >> /etc/fstab
+	sudo mount -a
+fi

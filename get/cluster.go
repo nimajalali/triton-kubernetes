@@ -126,13 +126,13 @@ func GetCluster(remoteBackend backend.Backend) error {
 	}
 
 	// Run terraform init
-	err = shell.RunShellCommand(&shellOptions, "terraform", "init", "-force-copy")
+	err = shell.RunShellCommand(&shellOptions, shell.GetTerraformCmd(), "init", "-force-copy")
 	if err != nil {
 		return err
 	}
 
 	// Run terraform output
-	err = shell.RunShellCommand(&shellOptions, "terraform", "output", "-module", selectedClusterKey)
+	err = shell.RunShellCommand(&shellOptions, shell.GetTerraformCmd(), "output", "-module", selectedClusterKey)
 	if err != nil {
 		return err
 	}
